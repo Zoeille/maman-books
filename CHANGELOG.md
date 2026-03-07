@@ -12,8 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - New environment variables for web server configuration (`WEB_HOST`, `WEB_PORT`, `WEB_DEBUG`, `FLASK_SECRET_KEY`)
 - Web interface allows users to search for books and view results in a browser
 - Docker Compose setup updated to include the web service, with instructions for running it
-
-
+- Demo sur https://books.kewan.xyz/
 
 ## [1.0.0] — 2026-03-07
 
