@@ -13,7 +13,7 @@
 ## Ce dont tu as besoin
 
 - Un ordinateur sous Windows, Mac ou Linux
-- L'application Telegram (sur ton téléphone **et/ou** ton ordinateur)
+- L'application Telegram (sur ton téléphone **et/ou** ton ordinateur, pour utiliser le bot)
 - Une connexion internet
 
 ---
@@ -60,6 +60,7 @@ BotFather va t'envoyer un message de confirmation avec une longue suite de carac
 ```
 
 **Copie ce token et garde-le précieusement** — tu en auras besoin juste après.
+
 
 ---
 
@@ -145,6 +146,65 @@ Ouvre Telegram, trouve ton bot par son nom d'utilisateur, envoie `/start` et c'e
 2. Il cherche et t'affiche une liste de résultats
 3. Appuie sur un résultat
 4. Le fichier t'est envoyé directement dans Telegram 📖
+
+---
+
+## Optionnel — Interface web
+
+Sinon, il y a aussi la possibilité d'utiliser une interface web.
+
+### Lancer l'interface web
+
+Méthode simple :
+1. Dans le dossier `maman-books`, double-clique sur **`lancer_web.bat`**
+
+Méthode ligne de commande :
+1. Ouvre un terminal dans le dossier `maman-books`
+2. Lance :
+   ```
+   python web_server.py
+   ```
+
+Puis ouvre `http://localhost:5000` dans ton navigateur.
+
+Pour arrêter le serveur, ferme la fenêtre ou fais `Ctrl+C`.
+
+### Configuration minimale pour l'interface web
+
+Dans `.env`, il faut au moins une source de recherche :
+
+```
+ANNA_ARCHIVE_URL=https://example.com
+```
+
+ou
+
+```
+PROWLARR_URL=http://localhost:9696
+PROWLARR_API_KEY=...
+```
+
+Variables web optionnelles :
+- `WEB_HOST` (défaut `0.0.0.0`)
+- `WEB_PORT` (défaut `5000`)
+- `WEB_DEBUG` (`true`/`false`)
+- `FLASK_SECRET_KEY`
+
+### Lancement via docker-compose
+1. Ouvre un terminal dans le dossier `maman-books`
+2. Lance :
+```
+docker network create media-stack
+docker compose up -d web --build
+```
+
+
+3. Puis pour voir les logs :
+```
+docker compose logs -f web
+```
+
+4. Ouvre `http://localhost:5000` dans ton navigateur et ça fonctionne !
 
 ---
 
