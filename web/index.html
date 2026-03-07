@@ -65,10 +65,15 @@
         <p>Envoyez-moi le titre d'un livre et je le chercherai pour vous.</p>
     </div>
     <div class="search-box">
-        <input type="text" id="bookTitle" placeholder="Ex: Agathe Raisin - Remède de cheval">
+        <input type="text" id="bookTitle">
         <button onclick="searchBook()">Rechercher</button>
     </div>
     <div id="results"></div>
+
+    <div class="warning">
+        <p>⚠️ Note : Les résultats proviennent de sources tierces. Assurez-vous de respecter les droits d'auteur et les lois en vigueur dans votre pays.</p>
+        <p>Ce projet est à but éducatif et open-source et n'encourage pas le piratage. Utilisez-le de manière responsable.</p>
+    </div>
 
     <script>
         async function searchBook() {
