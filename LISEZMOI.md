@@ -73,7 +73,7 @@ Le bot n'accepte que les personnes que tu autorises. Pour ça, il a besoin de to
 
 **Note ce nombre** — c'est ton identifiant.
 
-> Si tu veux que d'autres personnes puissent utiliser le bot, demande-leur de faire la même chose et de te donner leur numéro.
+> Si tu veux que d'autres personnes puissent utiliser le bot, demande-leur de faire la même chose et de te donner leur identifiant Telegram.
 
 ---
 
