@@ -1,0 +1,36 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ${BOOKS_DOWNLOAD_PATH}:${BOOKS_DOWNLOAD_PATH}:ro
+    networks:
+      - internal
+      - media-stack
+    depends_on:
+      - telegram-bot-api
+
+  telegram-bot-api:
+    image: ghcr.io/tdlib/telegram-bot-api:latest
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    networks:
+      - internal
+    volumes:
+      - telegram-bot-api-data:/var/lib/telegram-bot-api
+    command:
+      - --api-id=${LOCAL_API_ID}
+      - --api-hash=${LOCAL_API_HASH}
+      - --local
+      - --http-port=8081
+      - --dir=/var/lib/telegram-bot-api
+
+networks:
+  internal:
+  media-stack:
+    external: true
+
+volumes:
+  telegram-bot-api-data:
