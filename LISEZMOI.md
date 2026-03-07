@@ -171,3 +171,4 @@ Ouvre Telegram, trouve ton bot par son nom d'utilisateur, envoie `/start` et c'e
 - **"Python n'est pas reconnu"** → tu as oublié de cocher "Add Python to PATH" pendant l'installation. Désinstalle Python et recommence l'étape 2.
 - **Le bot ne répond pas** → vérifie que la fenêtre noire est bien ouverte et que tu n'as pas de faute de frappe dans le `.env`.
 - **"Aucun résultat trouvé"** → essaie avec un titre en anglais ou vérifie que `ANNA_ARCHIVE_URL` est bien rempli.
+- **"Toutes les sources sont indisponibles"** → les DNS de ton opérateur internet bloquent parfois les serveurs de téléchargement (Libgen, etc.). Pour contourner ça, change les DNS de ta connexion pour utiliser ceux de Cloudflare (`1.1.1.1`) ou Google (`8.8.8.8`). Tuto complet : [Changer les DNS sur Windows — Le Crabe Info](https://lecrabeinfo.net/tutoriels/changer-les-dns-sur-windows/)

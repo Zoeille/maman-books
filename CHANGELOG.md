@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.1.1] — 2026-03-07
+
+### Fixed
+
+- Better error message when all download mirrors are unavailable: now distinguishes between mirror failures and file size limit exceeded.
+
+### Documentation
+
+- `LISEZMOI.md`: added DNS troubleshooting tip — ISP DNS can block download servers (Libgen, etc.), with a link to a guide for changing DNS on Windows.
+
+---
+
 ## [1.1.0] — 2026-03-07
 
 ### Added

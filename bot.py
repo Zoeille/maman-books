@@ -47,7 +47,7 @@ ALLOWED_FORMATS: list[str] = [
     f for f in (s.strip() for s in os.environ.get("ALLOWED_FORMATS", "epub,pdf").split(","))
     if f in _VALID_FORMATS
 ] or ["epub"]  # fallback si la valeur env est invalide
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 MAX_RESULTS = 10
 MAX_FILE_SIZE = 400 * 1024 * 1024 if LOCAL_API_SERVER else 50 * 1024 * 1024
 MAX_QUERY_LENGTH = 200
@@ -346,8 +346,9 @@ async def _do_download(query, context: ContextTypes.DEFAULT_TYPE, idx: int, to_p
         filled = pct // 10
         return "▰" * filled + "▱" * (10 - filled)
 
-    async def _try_download(start_idx: int) -> tuple[str, dict] | None:
-        """Try results from start_idx onwards, return (file_path, result) or None."""
+    async def _try_download(start_idx: int) -> tuple[str, dict] | None | str:
+        """Try results from start_idx onwards, return (file_path, result), None, or 'mirrors'."""
+        any_mirror_failure = False
         for i in range(start_idx, len(results)):
             result = results[i]
             t = result.get("title") or "livre"
@@ -411,10 +412,12 @@ async def _do_download(query, context: ContextTypes.DEFAULT_TYPE, idx: int, to_p
             except TimeoutError:
                 logger.warning(f"Timeout on result {i}, skipping")
                 dots_task.cancel()
+                any_mirror_failure = True
                 continue
             except Exception as e:
                 logger.warning(f"Result {i} failed ({e}), skipping")
                 dots_task.cancel()
+                any_mirror_failure = True
                 continue
             finally:
                 dots_task.cancel()
@@ -430,7 +433,7 @@ async def _do_download(query, context: ContextTypes.DEFAULT_TYPE, idx: int, to_p
 
             return file_path, result
 
-        return None
+        return "mirrors" if any_mirror_failure else None
 
     download_task = asyncio.create_task(_try_download(idx))
     context.user_data["active_dl_task"] = download_task
@@ -441,10 +444,15 @@ async def _do_download(query, context: ContextTypes.DEFAULT_TYPE, idx: int, to_p
     finally:
         context.user_data.pop("active_dl_task", None)
 
-    if outcome is None:
-        await query.edit_message_text(
-            "😕 Aucun résultat disponible dans la limite de taille.\nRefais une recherche."
-        )
+    if outcome is None or isinstance(outcome, str):
+        if outcome == "mirrors":
+            msg_text = (
+                "😕 Toutes les sources de téléchargement sont indisponibles pour l'instant.\n"
+                "Réessaie dans quelques minutes ou essaie un autre titre."
+            )
+        else:
+            msg_text = "😕 Aucun résultat disponible dans la limite de taille.\nRefais une recherche."
+        await query.edit_message_text(msg_text)
         return
 
     file_path, result = outcome
