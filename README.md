@@ -11,7 +11,7 @@ A Telegram bot that searches and downloads ebooks on demand. Send it a book titl
 ## Prerequisites
 
 - Python 3.11+ **or** Docker + Docker Compose
-- A Telegram account
+- A Telegram account (for bot usage)
 
 ---
 
@@ -51,7 +51,6 @@ Copy that number — it goes in `ALLOWED_USER_IDS` in the `.env`.
 If you want to allow other people, ask them to do the same and give you their ID. You can add multiple IDs separated by commas.
 
 ---
-
 ## Step 2 — Download the project
 
 ```bash
@@ -117,6 +116,8 @@ By default Telegram limits file uploads to 50 MB. If you need more, see the Dock
 
 ## Step 4a — Run directly with Python
 
+### Telegram Bot
+
 ```bash
 # Install dependencies
 pip install -r requirements.txt
@@ -139,7 +140,9 @@ nohup python bot.py &
 
 Make sure Docker and Docker Compose are installed.
 
-### Without local Bot API (50 MB file limit)
+### Telegram Bot with Docker
+
+#### Without local Bot API (50 MB file limit)
 
 Edit `docker-compose.yml` and remove the `depends_on` block and the `telegram-bot-api` service — they are only needed for the local API server.
 
@@ -185,8 +188,42 @@ docker compose logs -f bot
 
 ## Usage
 
+### Telegram Bot
+
 1. Open Telegram and find your bot by its username
 2. Send `/start`
 3. Type any book title and send it
 4. The bot searches and shows a list of results — tap one to download
 5. The file is sent directly in the chat
+
+## Optional — Web interface
+
+If you prefer, there is also a web interface available.
+
+### Run with Python
+
+```bash
+pip install -r requirements.txt
+python web_server.py
+```
+
+Then open `http://localhost:5000`.
+
+### Run with Docker
+
+```bash
+docker network create media-stack
+docker compose up -d web --build
+docker compose logs -f web
+```
+
+### Web environment variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `WEB_HOST` | Host to bind the server to | `0.0.0.0` |
+| `WEB_PORT` | Port to run the server on | `5000` |
+| `WEB_DEBUG` | Enable Flask debug mode (`true` or `false`) | `false` |
+| `FLASK_SECRET_KEY` | Secret key for Flask sessions (optional) | Auto-generated |
+
+At least one of `ANNA_ARCHIVE_URL` or `PROWLARR_URL` must be configured.

@@ -11,6 +11,17 @@ services:
     depends_on:
       - telegram-bot-api
 
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    command: python web_server.py
+    ports:
+      - "${WEB_PORT:-5000}:${WEB_PORT:-5000}"
+    networks:
+      - internal
+      - media-stack
+
   telegram-bot-api:
     image: ghcr.io/tdlib/telegram-bot-api:latest
     restart: unless-stopped
