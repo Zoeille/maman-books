@@ -1,5 +1,7 @@
 # maman-books
 
+> 🇫🇷 Une version ultra-friendly en français avec un tutoriel pas à pas est disponible ici : [LISEZMOI.md](./LISEZMOI.md)
+
 A Telegram bot that searches and downloads ebooks on demand. Send it a book title, pick a result, get the file.
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-zoeillle-ffdd00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/zoeillle)
