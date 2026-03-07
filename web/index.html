@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trouver un livre</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .search-box {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        #bookTitle {
+            flex: 1;
+            padding: 10px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #8a2be2;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #6a1b9a;
+        }
+        .result {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .result a {
+            color: #8a2be2;
+            text-decoration: none;
+        }
+        .result a:hover {
+            text-decoration: underline;
+        }
+        .status {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>La petite Pataterie</h1>
+        <p>Envoyez-moi le titre d'un livre et je le chercherai pour vous.</p>
+    </div>
+    <div class="search-box">
+        <input type="text" id="bookTitle" placeholder="Ex: Agathe Raisin - Remède de cheval">
+        <button onclick="searchBook()">Rechercher</button>
+    </div>
+    <div id="results"></div>
+
+    <script>
+        async function searchBook() {
+            const title = document.getElementById('bookTitle').value;
+            if (!title.trim()) {
+                alert('Veuillez entrer un titre de livre');
+                return;
+            }
+
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<p>🔍 Recherche en cours...</p>';
+
+            try {
+                const response = await fetch('/rechercher', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ titre: title })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Erreur de recherche');
+                }
+
+                const data = await response.json();
+
+                if (data.results && data.results.length > 0) {
+                    resultsDiv.innerHTML = '';
+                    data.results.forEach(book => {
+                        const resultDiv = document.createElement('div');
+                        resultDiv.className = 'result';
+                        
+                        const icon = book.is_torrent ? '🌀' : '📥';
+                        const authorText = book.author ? ` — ${book.author}` : '';
+                        const sizeText = book.size ? ` (${book.size})` : '';
+                        
+                        resultDiv.innerHTML = `
+                            <div>
+                                <span>${icon} ${book.title}${authorText}</span>
+                                <small style="display: block; color: #666;">${book.ext.toUpperCase()}${sizeText}</small>
+                            </div>
+                            <a href="/telecharger/${encodeURIComponent(book.id)}" download="${book.title}.${book.ext}">
+                                <button>Télécharger</button>
+                            </a>
+                        `;
+                        resultsDiv.appendChild(resultDiv);
+                    });
+                } else {
+                    resultsDiv.innerHTML = '<p>😕 Aucun résultat trouvé. Essayez un autre titre.</p>';
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+                resultsDiv.innerHTML = `<p style="color: red;">❌ Erreur: ${error.message}</p>`;
+            }
+        }
+
+        // Permettre la recherche avec la touche Entrée
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('bookTitle').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    searchBook();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
