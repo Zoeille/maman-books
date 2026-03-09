@@ -47,7 +47,10 @@ async def set(user_id: int, key: str, value: Any) -> None:
         data[user_key][key] = value
 
         # Atomic write via temp file + os.replace()
-        fd, temp_path = tempfile.mkstemp(text=True, suffix=".json")
+        # Temp file must be on the same filesystem as destination (required for os.replace)
+        dest_dir = os.path.dirname(os.path.abspath(PREFS_FILE))
+        os.makedirs(dest_dir, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(text=True, suffix=".json", dir=dest_dir)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -76,7 +79,8 @@ async def delete_user(user_id: int) -> None:
             del data[user_key]
 
             # Atomic write
-            fd, temp_path = tempfile.mkstemp(text=True, suffix=".json")
+            dest_dir = os.path.dirname(os.path.abspath(PREFS_FILE))
+            fd, temp_path = tempfile.mkstemp(text=True, suffix=".json", dir=dest_dir)
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)

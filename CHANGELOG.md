@@ -12,6 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `prefs.py`: default path for `user_prefs.json` now resolves relative to the script directory (`__file__`) instead of the current working directory — the file is always created next to `bot.py` regardless of where the bot is launched from.
 - `docker-compose.yml`: `USER_PREFS_FILE=data/user_prefs.json` is now injected directly via the `environment` block instead of relying on `.env` — Docker users no longer need to set this variable manually.
 - Removed `USER_PREFS_FILE` from `.env.example` (and `.env`) — Python users never need to set it.
+- `prefs.py`: temp file for atomic write now created in the same directory as `PREFS_FILE` — fixes `OSError: [Errno 18] Invalid cross-device link` in Docker where `/tmp` and the bind-mounted `data/` folder are on different filesystems.
 
 ### Changed
 
