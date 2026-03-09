@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.0] — 2026-03-09
+
+### Added
+
+- **MOBI & AZW3 formats** — epub results can now be converted to MOBI or AZW3 before sending. Conversion uses Calibre's `ebook-convert` if installed; falls back to PyMuPDF otherwise. MOBI/AZW3 are mainly needed for Kindle models older than 2022 — newer Kindles support EPUB natively.
+- **Email delivery** (`mailer.py`) — books can be sent to any email address via SMTP (stdlib `smtplib`, no extra dependencies). Configured globally via `SMTP_HOST/PORT/USER/PASSWORD/FROM` in `.env`.
+- **Send to Kindle** — variant of email delivery where the subject is set to `"convert"`, triggering Amazon's automatic format conversion. The sender address must be whitelisted in the Amazon account's approved document email list.
+- **User preferences** (`prefs.py`) — per-user settings stored in a JSON file (`USER_PREFS_FILE`). Stores preferred format, personal email, and Kindle address. Async-safe with atomic writes via `os.replace()`.
+- **`/settings` command** — inline menu to view and update preferences (format, email, Kindle address, delete all data).
+- **Onboarding wizard** — on first `/start`, a step-by-step flow guides new users through setting up their format, email, and Kindle preferences.
+- **Destination menu** — after choosing a format, users with a configured email or Kindle address are offered a delivery choice: Telegram / Email / Kindle.
+- **Calibre auto-detection** — the bot detects `ebook-convert` in PATH at startup and logs whether Calibre is available.
+
+### Changed
+
+- `ALLOWED_FORMATS` now accepts `mobi` and `azw3` in addition to `epub` and `pdf`.
+- Download flow: the bot always fetches the best available EPUB, then converts to the requested format post-download (rather than searching for a specific format).
+- Cancel button is now responsive during downloads (non-blocking loop with 0.5 s timeout slices instead of a single blocking `await`).
+- SMTP errors shown to the user are now generic (details logged server-side only).
+- Startup log now shows Calibre and Email/Kindle status.
+- Version bump to `1.2.0`.
+
+### Fixed
+
+- `NameError: name 'update' is not defined` in `_do_download` when sending via email/Kindle — replaced `update.effective_user.id` with `query.from_user.id`.
+
+### Security
+
+- `user_prefs.json` added to `.gitignore` (contains user email addresses).
+
+### Deployment
+
+- `docker-compose.yml`: added `./data:/app/data` bind mount so user preferences survive container restarts.
+- `docker-compose.yml`: removed the external `media-stack` network — the bot only needs the internal network to reach the `telegram-bot-api` sidecar.
+- `USER_PREFS_FILE=data/user_prefs.json` added to `.env.example`.
+
+---
+
 ## [1.1.1] — 2026-03-07
 
 ### Fixed

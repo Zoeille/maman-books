@@ -5,9 +5,9 @@ services:
     env_file: .env
     volumes:
       - ${BOOKS_DOWNLOAD_PATH}:${BOOKS_DOWNLOAD_PATH}:ro
+      - ./data:/app/data
     networks:
       - internal
-      - media-stack
     depends_on:
       - telegram-bot-api
 
@@ -29,8 +29,6 @@ services:
 
 networks:
   internal:
-  media-stack:
-    external: true
 
 volumes:
   telegram-bot-api-data:

@@ -125,18 +125,79 @@ ANNA_ARCHIVE_URL=https://example.com
 
 | Ligne | À quoi ça sert |
 |---|---|
-| `ALLOWED_FORMATS=epub,pdf` | Le format dans lequel tu veux recevoir tes livres (voir détail ci-dessous). |
+| `ALLOWED_FORMATS=epub,pdf,mobi,azw3` | Les formats que le bot peut t'envoyer (voir détail ci-dessous). |
 | `VIRUSTOTAL_API_KEY=` | Clé API [VirusTotal](https://www.virustotal.com) pour scanner les fichiers avant de les recevoir. Laisse vide pour désactiver. |
+| `SMTP_HOST=smtp.gmail.com` | Adresse du serveur mail (pour envoyer les livres par email ou vers un Kindle). |
+| `SMTP_PORT=587` | Port du serveur mail (laisse 587 par défaut). |
+| `SMTP_USER=` | Ton adresse email (ex : `toi@gmail.com`). |
+| `SMTP_PASSWORD=` | Mot de passe de ton email. Pour Gmail, utilise un **mot de passe d'application** (voir section Kindle ci-dessous). |
+| `SMTP_FROM=` | Adresse d'expéditeur. Laisse vide pour utiliser `SMTP_USER`. |
 
 **Quel format choisir ?**
 
-Le bot peut te donner les livres en **EPUB** (idéal pour les liseuses et applications de lecture) ou en **PDF** (s'ouvre partout, mise en page fixe). Tu as trois options :
+Le bot peut te donner les livres dans différents formats :
 
-- `ALLOWED_FORMATS=epub,pdf` — le bot te **demande à chaque fois** quel format tu veux (comportement par défaut)
+- **EPUB** — idéal pour les liseuses (Kobo, etc.) et applications de lecture. Les Kindle **depuis 2022** lisent aussi l'EPUB nativement.
+- **PDF** — s'ouvre partout, mise en page fixe
+- **MOBI / AZW3** — formats Kindle, **nécessaires pour les vieux Kindle (avant 2022)**
+
+Options possibles :
+- `ALLOWED_FORMATS=epub,pdf,mobi,azw3` — le bot te **demande à chaque fois** quel format tu veux
 - `ALLOWED_FORMATS=epub` — tu reçois **toujours de l'EPUB**, sans question
-- `ALLOWED_FORMATS=pdf` — tu reçois **toujours du PDF**, le bot convertit automatiquement
+- `ALLOWED_FORMATS=epub,pdf` — choix entre EPUB et PDF uniquement
+
+> La conversion en MOBI/AZW3 nécessite Calibre (voir l'étape optionnelle ci-dessous).
 
 6. **Enregistre le fichier** (Ctrl+S) et ferme le Bloc-notes
+
+---
+
+## Étape 5b — (Optionnel) Installer Calibre pour les formats Kindle
+
+Si tu veux envoyer des livres en **MOBI ou AZW3** (formats Kindle), installe Calibre :
+
+1. Va sur **[calibre-ebook.com/download](https://calibre-ebook.com/download)**
+2. Clique sur **Windows** (ou Mac/Linux selon ton système)
+3. Lance l'installateur et suis les étapes (tout par défaut, c'est très simple)
+4. Redémarre le bot ensuite
+
+Le bot détecte Calibre automatiquement — tu verras `✓ ebook-convert trouvé` au démarrage.
+
+> Sans Calibre, le bot essaie quand même de convertir mais le résultat peut varier. Pour envoyer vers Kindle par email, Amazon convertit lui-même les fichiers, donc Calibre n'est pas indispensable dans ce cas.
+
+---
+
+## Étape 5c — (Optionnel) Configurer l'envoi par email ou vers un Kindle
+
+Le bot peut envoyer les livres directement par email ou sur ton Kindle, sans passer par Telegram.
+
+### Configurer Gmail
+
+1. Va sur **[myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)**
+2. Connecte-toi à ton compte Google
+3. Dans "Nom de l'application", écris `maman-books` et clique **Créer**
+4. Google te donne un mot de passe à 16 lettres (ex : `abcd efgh ijkl mnop`) — **copie-le**
+
+Dans ton `.env`, remplis ces lignes :
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=toi@gmail.com
+SMTP_PASSWORD=abcdefghijklmnop
+SMTP_FROM=toi@gmail.com
+```
+(le mot de passe sans espaces)
+
+### Configurer Send to Kindle
+
+1. Va sur **[amazon.fr](https://www.amazon.fr)** → ton compte → **Gérer votre contenu et vos appareils**
+2. Clique sur **Préférences** → **Paramètres des documents personnels**
+3. Trouve **Liste des adresses e-mail autorisées pour les documents personnels** et ajoute `toi@gmail.com` (l'adresse que tu as mise dans `SMTP_FROM`)
+4. Note ton adresse Kindle (du type `prenom@kindle.com`) — tu la rentreras dans le bot via `/settings`
+
+### Dans le bot
+
+Une fois le bot configuré et lancé, envoie `/settings` dans Telegram pour entrer ton adresse email et/ou ton adresse Kindle. Le bot te les demandera guidé étape par étape.
 
 ---
 
@@ -156,13 +217,16 @@ Ouvre Telegram, trouve ton bot par son nom d'utilisateur, envoie `/start` et c'e
 
 ## Utilisation
 
-1. Envoie un titre de livre au bot
-2. Il cherche et t'affiche une liste de résultats
-3. Appuie sur un résultat
-4. Si c'est un epub et que tu as configuré `ALLOWED_FORMATS=epub,pdf`, le bot te demande : **EPUB ou PDF ?**
-5. Le fichier t'est envoyé directement dans Telegram 📖
+1. Envoie `/start` — au premier lancement, le bot te guide pour configurer tes préférences (format, email, adresse Kindle)
+2. Envoie un titre de livre
+3. Le bot cherche et t'affiche une liste de résultats — appuie sur un résultat
+4. Si tu as configuré plusieurs formats, le bot te demande lequel tu veux
+5. Si tu as configuré un email ou une adresse Kindle, le bot te demande où envoyer le livre (Telegram / Email / Kindle)
+6. Le fichier t'est envoyé 📖
 
 > Si tu as activé VirusTotal, le fichier est analysé automatiquement avant d'être envoyé. S'il est détecté comme dangereux, le bot le bloque et t'en informe.
+
+Tu peux modifier tes préférences à tout moment avec la commande `/settings`.
 
 ---
 
@@ -184,3 +248,6 @@ Le fichier `docker-compose.yml` est déjà configuré pour l'utiliser.
 - **Le bot ne répond pas** → vérifie que la fenêtre noire est bien ouverte et que tu n'as pas de faute de frappe dans le `.env`.
 - **"Aucun résultat trouvé"** → essaie avec un titre en anglais ou vérifie que `ANNA_ARCHIVE_URL` est bien rempli.
 - **"Toutes les sources sont indisponibles"** → les DNS de ton opérateur internet bloquent parfois les serveurs de téléchargement (Libgen, etc.). Pour contourner ça, change les DNS de ta connexion pour utiliser ceux de Cloudflare (`1.1.1.1`) ou Google (`8.8.8.8`). Tuto complet : [Changer les DNS sur Windows — Le Crabe Info](https://lecrabeinfo.net/tutoriels/changer-les-dns-sur-windows/)
+- **L'email n'arrive pas** → vérifie que `SMTP_USER` et `SMTP_PASSWORD` sont bien remplis dans `.env`. Pour Gmail, le mot de passe doit être un **mot de passe d'application** (pas ton mot de passe habituel).
+- **Le livre n'arrive pas sur mon Kindle** → vérifie que l'adresse email de l'expéditeur (`SMTP_FROM`) est bien dans la liste des adresses autorisées sur ton compte Amazon.
+- **Je reçois un EPUB au lieu de MOBI/AZW3** → installe Calibre (étape 5b). Sans Calibre, la conversion peut ne pas fonctionner correctement.

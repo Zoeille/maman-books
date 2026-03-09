@@ -25,6 +25,8 @@ import prowlarr
 import downloader
 import converter
 import virustotal
+import prefs
+import mailer
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     level=logging.INFO,
@@ -42,12 +44,12 @@ for _uid in os.environ.get("ALLOWED_USER_IDS", "").split(","):
             logger.warning(f"ALLOWED_USER_IDS: ignoring non-numeric value {_uid!r}")
 LOCAL_API_SERVER = os.environ.get("LOCAL_API_SERVER", "").rstrip("/")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "Zoeille/maman-books")
-_VALID_FORMATS = {"epub", "pdf"}
+_VALID_FORMATS = {"epub", "pdf", "mobi", "azw3"}
 ALLOWED_FORMATS: list[str] = [
     f for f in (s.strip() for s in os.environ.get("ALLOWED_FORMATS", "epub,pdf").split(","))
     if f in _VALID_FORMATS
 ] or ["epub"]  # fallback si la valeur env est invalide
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 MAX_RESULTS = 10
 MAX_FILE_SIZE = 400 * 1024 * 1024 if LOCAL_API_SERVER else 50 * 1024 * 1024
 MAX_QUERY_LENGTH = 200
@@ -131,15 +133,381 @@ async def check_for_updates(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_allowed(update):
         return
+
+    user_id = update.effective_user.id
+    user_prefs = await prefs.get(user_id)
+
+    # Si l'utilisateur n'a pas de préférences, lancer l'onboarding
+    if not user_prefs:
+        context.user_data["onboarding_step"] = "format"
+        await handle_onboarding_format(update, context)
+        return
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⚙️ Configurer mes préférences", callback_data="open_settings")],
+    ])
     await update.message.reply_text(
         "👋 Bonjour ! Envoie-moi le titre d'un livre et je le chercherai pour toi.\n\n"
         "Je cherche sur Anna's Archive et Prowlarr. "
-        "Tu pourras ensuite choisir le résultat à télécharger."
+        "Tu pourras ensuite choisir le résultat à télécharger.",
+        reply_markup=keyboard,
     )
+
+
+async def handle_onboarding_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """First step of onboarding: choose format."""
+    context.user_data["onboarding_step"] = "format"
+
+    buttons = []
+    for fmt in ["epub", "pdf", "mobi", "azw3"]:
+        if fmt in ALLOWED_FORMATS:
+            buttons.append([InlineKeyboardButton(f"{fmt.upper()}", callback_data=f"onb_fmt_{fmt}")])
+
+    keyboard = InlineKeyboardMarkup(buttons)
+    await update.message.reply_text(
+        "👋 Bienvenue ! Commençons par configurer tes préférences.\n\n"
+        "📚 Quel format préfères-tu ?",
+        reply_markup=keyboard,
+    )
+
+
+async def handle_onboarding_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Second step of onboarding: ask for email."""
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data["onboarding_step"] = "email"
+    context.user_data["waiting_for"] = "onb_email"
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏭️ Passer", callback_data="onb_skip_email")],
+    ])
+    await query.edit_message_text(
+        "📧 Veux-tu configurer un email pour recevoir les livres ?\n\n"
+        "Envoie ton adresse email (ou clique Passer pour continuer).",
+        reply_markup=keyboard,
+    )
+
+
+async def handle_onboarding_kindle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Third step of onboarding: ask for Kindle email."""
+    if update.callback_query:
+        await update.callback_query.answer()
+
+    context.user_data["onboarding_step"] = "kindle"
+    context.user_data["waiting_for"] = "onb_kindle"
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏭️ Passer", callback_data="onb_skip_kindle")],
+    ])
+
+    msg_text = (
+        "📖 Veux-tu configurer une adresse Kindle ?\n\n"
+        "Envoie ton adresse Kindle (ou clique Passer).\n\n"
+        "⚠️ Les vieux Kindle ne supportent pas EPUB.\n"
+        "Utilise MOBI ou AZW3 pour une meilleure compatibilité."
+    )
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(msg_text, reply_markup=keyboard, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(msg_text, reply_markup=keyboard, parse_mode="Markdown")
+
+
+async def handle_onboarding_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Final step of onboarding: show summary."""
+    user_id = update.effective_user.id
+    user_prefs = await prefs.get(user_id)
+
+    fmt = user_prefs.get("format", "?")
+    email = user_prefs.get("email", "non configuré")
+    kindle = user_prefs.get("kindle_email", "non configuré")
+
+    summary_text = (
+        "✅ *Configuration terminée !*\n\n"
+        f"• Format : `{fmt.upper()}`\n"
+        f"• Email : `{email}`\n"
+        f"• Kindle : `{kindle}`\n\n"
+        "Tu peux maintenant chercher des livres ! "
+        "Utilise `/settings` pour modifier tes préférences à tout moment."
+    )
+
+    context.user_data.pop("onboarding_step", None)
+    context.user_data.pop("waiting_for", None)
+
+    if isinstance(update.callback_query, type(None)):
+        # Message context
+        await update.message.reply_text(summary_text, parse_mode="Markdown")
+    else:
+        # Callback context
+        await update.callback_query.edit_message_text(summary_text, parse_mode="Markdown")
+
+
+async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /settings command."""
+    if not _is_allowed(update):
+        return
+
+    user_id = update.effective_user.id
+    user_prefs = await prefs.get(user_id)
+
+    fmt = user_prefs.get("format", "epub")
+    email = user_prefs.get("email", "non configuré")
+    kindle = user_prefs.get("kindle_email", "non configuré")
+
+    text = (
+        "⚙️ *Vos préférences :*\n\n"
+        f"• Format par défaut : `{fmt.upper()}`\n"
+        f"• Email personnel : `{email if email != 'non configuré' else '❌ ' + email}`\n"
+        f"• Adresse Kindle : `{kindle if kindle != 'non configuré' else '❌ ' + kindle}`"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📚 Format", callback_data="setfmt_menu")],
+        [InlineKeyboardButton("📧 Mon email", callback_data="setemail_prompt")],
+        [InlineKeyboardButton("📖 Mon Kindle", callback_data="setkindl_prompt")],
+        [InlineKeyboardButton("❌ Supprimer mes données", callback_data="prefs_delete_confirm")],
+    ])
+
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    user_id = update.effective_user.id
+    user_prefs = await prefs.get(user_id)
+
+    fmt = user_prefs.get("format", "epub")
+    email = user_prefs.get("email", "non configuré")
+    kindle = user_prefs.get("kindle_email", "non configuré")
+
+    text = (
+        "⚙️ *Vos préférences :*\n\n"
+        f"• Format par défaut : `{fmt.upper()}`\n"
+        f"• Email personnel : `{email if email != 'non configuré' else '❌ ' + email}`\n"
+        f"• Adresse Kindle : `{kindle if kindle != 'non configuré' else '❌ ' + kindle}`"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📚 Format", callback_data="setfmt_menu")],
+        [InlineKeyboardButton("📧 Mon email", callback_data="setemail_prompt")],
+        [InlineKeyboardButton("📖 Mon Kindle", callback_data="setkindl_prompt")],
+        [InlineKeyboardButton("❌ Supprimer mes données", callback_data="prefs_delete_confirm")],
+    ])
+
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+async def handle_setfmt_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    user_id = update.effective_user.id
+    user_prefs = await prefs.get(user_id)
+    current_fmt = user_prefs.get("format", "epub")
+
+    buttons = []
+    for fmt in ["epub", "pdf", "mobi", "azw3"]:
+        if fmt in ALLOWED_FORMATS:
+            marker = "✓ " if fmt == current_fmt else ""
+            buttons.append([InlineKeyboardButton(f"{marker}{fmt.upper()}", callback_data=f"setfmt_{fmt}")])
+
+    buttons.append([InlineKeyboardButton("⬅️ Retour", callback_data="open_settings")])
+    keyboard = InlineKeyboardMarkup(buttons)
+
+    await query.edit_message_text("📚 Quel format préfères-tu ?", reply_markup=keyboard)
+
+
+async def handle_setfmt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    m = re.match(r"^setfmt_(\w+)$", query.data or "")
+    if not m:
+        return
+
+    fmt = m.group(1)
+    user_id = update.effective_user.id
+    await prefs.set(user_id, "format", fmt)
+
+    await query.edit_message_text(f"✅ Format défini à *{fmt.upper()}*", parse_mode="Markdown")
+    await asyncio.sleep(1)
+    await handle_settings(update, context)
+
+
+async def handle_setemail_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    context.user_data["waiting_for"] = "email"
+    await query.edit_message_text("📧 Envoie-moi ton adresse email :")
+
+
+async def handle_setkindl_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    context.user_data["waiting_for"] = "kindle_email"
+    await query.edit_message_text(
+        "📖 Envoie-moi ton adresse Kindle :\n\n"
+        "⚠️ *Note :* Les vieux Kindle ne supportent pas EPUB.\n"
+        "Utilise *MOBI* ou *AZW3* pour une meilleure compatibilité.",
+        parse_mode="Markdown"
+    )
+
+
+async def handle_prefs_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Oui, supprimer", callback_data="prefs_delete_execute")],
+        [InlineKeyboardButton("❌ Non, annuler", callback_data="open_settings")],
+    ])
+
+    await query.edit_message_text(
+        "⚠️ Ceci supprimera toutes tes préférences (format, emails). Continuer ?",
+        reply_markup=keyboard,
+    )
+
+
+async def handle_prefs_delete_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    user_id = update.effective_user.id
+    await prefs.delete_user(user_id)
+    context.user_data.pop("waiting_for", None)
+
+    await query.edit_message_text("✅ Préférences supprimées. Réutilise /settings pour les reconfigurer.")
+
+
+async def handle_onb_fmt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Onboarding: set format and continue to email."""
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    m = re.match(r"^onb_fmt_(\w+)$", query.data or "")
+    if not m:
+        return
+
+    fmt = m.group(1)
+    user_id = update.effective_user.id
+    await prefs.set(user_id, "format", fmt)
+
+    await query.edit_message_text(f"✅ Format défini à *{fmt.upper()}*", parse_mode="Markdown")
+    await asyncio.sleep(0.5)
+    await handle_onboarding_email(update, context)
+
+
+async def handle_onb_skip_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Onboarding: skip email and continue to Kindle."""
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    context.user_data.pop("waiting_for", None)
+    await query.edit_message_text("⏭️ Email ignoré.")
+    await asyncio.sleep(0.5)
+    await handle_onboarding_kindle(update, context)
+
+
+async def handle_onb_skip_kindle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Onboarding: skip Kindle and show summary."""
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    context.user_data.pop("waiting_for", None)
+    await query.edit_message_text("⏭️ Kindle ignoré.")
+    await asyncio.sleep(0.5)
+    await handle_onboarding_summary(update, context)
 
 
 async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_allowed(update):
+        return
+
+    # Check if waiting for email/Kindle input
+    waiting_for = context.user_data.get("waiting_for")
+    if waiting_for in ("email", "kindle_email", "onb_email", "onb_kindle"):
+        user_input = update.message.text.strip()
+        if not user_input:
+            await update.message.reply_text("❌ Adresse vide. Essaie à nouveau.")
+            return
+
+        # Simple email validation
+        if not re.match(r"[^@]+@[^@]+\.[^@]+", user_input):
+            await update.message.reply_text("❌ Adresse email invalide. Essaie à nouveau.")
+            return
+
+        user_id = update.effective_user.id
+
+        # Handle onboarding flow
+        if waiting_for == "onb_email":
+            await prefs.set(user_id, "email", user_input)
+            context.user_data.pop("waiting_for", None)
+            await update.message.reply_text(f"✅ Email configuré : `{user_input}`", parse_mode="Markdown")
+            # Continue to next step
+            await asyncio.sleep(0.5)
+            await handle_onboarding_kindle(update, context)
+            return
+        elif waiting_for == "onb_kindle":
+            await prefs.set(user_id, "kindle_email", user_input)
+            context.user_data.pop("waiting_for", None)
+            await update.message.reply_text(
+                f"✅ Adresse Kindle configurée : `{user_input}`\n\n"
+                "💡 *Conseil :* Préfère *MOBI* ou *AZW3* pour envoyer vers Kindle.",
+                parse_mode="Markdown"
+            )
+            # Continue to summary
+            await asyncio.sleep(0.5)
+            await handle_onboarding_summary(update, context)
+            return
+
+        # Handle regular settings flow
+        if waiting_for == "email":
+            await prefs.set(user_id, "email", user_input)
+            context.user_data.pop("waiting_for", None)
+            await update.message.reply_text(f"✅ Email configuré : `{user_input}`", parse_mode="Markdown")
+        else:  # kindle_email
+            await prefs.set(user_id, "kindle_email", user_input)
+            context.user_data.pop("waiting_for", None)
+            await update.message.reply_text(
+                f"✅ Adresse Kindle configurée : `{user_input}`\n\n"
+                "💡 *Conseil :* Préfère *MOBI* ou *AZW3* pour envoyer vers Kindle.",
+                parse_mode="Markdown"
+            )
         return
 
     now = time.monotonic()
@@ -174,10 +542,11 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     for r in pr_results:
         logger.info(f"  [PR] {r.get('title')!r} — {r.get('ext')} — {_fmt_size(r.get('size_bytes',0))} — torrent={r.get('is_torrent')}")
 
-    # Merge: epub first, then other formats — direct before torrents — drop oversized
+    # Merge: epub/mobi/azw3 first, then other formats — direct before torrents — drop oversized
     def _sort_key(r):
+        ext = r.get("ext")
         return (
-            0 if r.get("ext") == "epub" else 1,
+            0 if ext in ("epub", "mobi", "azw3") else 1,
             0 if not r.get("is_torrent") else 1,
         )
 
@@ -300,11 +669,15 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     result = results[idx]
-    if result.get("ext") == "epub" and len(ALLOWED_FORMATS) > 1:
+    # Show format menu if multiple formats available
+    available_formats = {result.get("ext")}
+    if len(ALLOWED_FORMATS) > 1 and available_formats & set(ALLOWED_FORMATS):
         title = result.get("title") or "ce livre"
         fmt_buttons = [
             InlineKeyboardButton("📥 EPUB", callback_data=f"dlfmt_epub_{idx}") if "epub" in ALLOWED_FORMATS else None,
             InlineKeyboardButton("📄 PDF", callback_data=f"dlfmt_pdf_{idx}") if "pdf" in ALLOWED_FORMATS else None,
+            InlineKeyboardButton("📱 MOBI", callback_data=f"dlfmt_mobi_{idx}") if "mobi" in ALLOWED_FORMATS else None,
+            InlineKeyboardButton("📘 AZW3", callback_data=f"dlfmt_azw3_{idx}") if "azw3" in ALLOWED_FORMATS else None,
         ]
         keyboard = InlineKeyboardMarkup([
             [b for b in fmt_buttons if b],
@@ -317,8 +690,8 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     # Format unique configuré : on télécharge directement
-    to_pdf = result.get("ext") == "epub" and ALLOWED_FORMATS == ["pdf"]
-    await _do_download(query, context, idx, to_pdf=to_pdf)
+    desired_fmt = ALLOWED_FORMATS[0] if ALLOWED_FORMATS else "epub"
+    await _do_download(query, context, idx, desired_fmt=desired_fmt, destination="telegram")
 
 
 async def handle_download_fmt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -328,19 +701,107 @@ async def handle_download_fmt(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not _is_allowed(update):
         return
 
-    m = re.match(r"^dlfmt_(epub|pdf)_(\d+)$", query.data or "")
+    m = re.match(r"^dlfmt_(epub|pdf|mobi|azw3)_(\d+)$", query.data or "")
     if not m:
         return
 
     fmt, idx = m.group(1), int(m.group(2))
-    await _do_download(query, context, idx, to_pdf=(fmt == "pdf"))
 
-
-async def _do_download(query, context: ContextTypes.DEFAULT_TYPE, idx: int, to_pdf: bool) -> None:
+    # Store format choice and check for destination options
     results = context.user_data.get("results", [])
     if idx >= len(results):
         await query.edit_message_text("❌ Résultat expiré, refais une recherche.")
         return
+
+    user_prefs = await prefs.get(update.effective_user.id)
+    has_email = bool(user_prefs.get("email"))
+    has_kindle = bool(user_prefs.get("kindle_email"))
+
+    # Store format choice
+    context.user_data[f"fmt_{idx}"] = fmt
+
+    # If user has configured emails, show destination menu
+    if has_email or has_kindle:
+        result = results[idx]
+        title = result.get("title") or "ce livre"
+        dest_buttons = [
+            InlineKeyboardButton("📬 Telegram", callback_data=f"dest_telegram_{idx}"),
+        ]
+        if has_email:
+            dest_buttons.append(InlineKeyboardButton("📧 Email", callback_data=f"dest_email_{idx}"))
+        if has_kindle:
+            dest_buttons.append(InlineKeyboardButton("📖 Kindle", callback_data=f"dest_kindle_{idx}"))
+
+        keyboard = InlineKeyboardMarkup([
+            dest_buttons,
+            [InlineKeyboardButton("⛔ Annuler", callback_data="cancel_dl")],
+        ])
+        await query.edit_message_text(
+            f"📚 « {title[:50]} »\n\n📬 Où envoyer ?",
+            reply_markup=keyboard,
+        )
+    else:
+        # No emails configured, download to Telegram
+        await _do_download(query, context, idx, desired_fmt=fmt, destination="telegram")
+
+
+async def handle_dest_telegram(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    m = re.match(r"^dest_telegram_(\d+)$", query.data or "")
+    if not m:
+        return
+
+    idx = int(m.group(1))
+    fmt = context.user_data.get(f"fmt_{idx}", "epub")
+    await _do_download(query, context, idx, desired_fmt=fmt, destination="telegram")
+
+
+async def handle_dest_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    m = re.match(r"^dest_email_(\d+)$", query.data or "")
+    if not m:
+        return
+
+    idx = int(m.group(1))
+    fmt = context.user_data.get(f"fmt_{idx}", "epub")
+    await _do_download(query, context, idx, desired_fmt=fmt, destination="email")
+
+
+async def handle_dest_kindle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_allowed(update):
+        return
+
+    m = re.match(r"^dest_kindle_(\d+)$", query.data or "")
+    if not m:
+        return
+
+    idx = int(m.group(1))
+    fmt = context.user_data.get(f"fmt_{idx}", "epub")
+    await _do_download(query, context, idx, desired_fmt=fmt, destination="kindle")
+
+
+async def _do_download(query, context: ContextTypes.DEFAULT_TYPE, idx: int, desired_fmt: str = "epub", destination: str = "telegram", to_pdf: bool = False) -> None:
+    results = context.user_data.get("results", [])
+    if idx >= len(results):
+        await query.edit_message_text("❌ Résultat expiré, refais une recherche.")
+        return
+
+    # Convert desired format to to_pdf flag for backwards compatibility
+    if not to_pdf:
+        to_pdf = desired_fmt == "pdf"
 
     def _progress_bar(pct: int) -> str:
         filled = pct // 10
@@ -354,6 +815,11 @@ async def _do_download(query, context: ContextTypes.DEFAULT_TYPE, idx: int, to_p
             t = result.get("title") or "livre"
             ext = result.get("ext") or "epub"
             is_torrent = result.get("is_torrent", False)
+
+            # Skip non-EPUB for conversion (unless PDF, then EPUB is OK)
+            # We always want to download EPUB for conversion to MOBI/AZW3/PDF
+            if desired_fmt in ("mobi", "azw3", "pdf") and ext not in ("epub", "pdf"):
+                continue
 
             if i > start_idx:
                 logger.info(f"Auto-retry on result {i}: {t!r}")
@@ -438,7 +904,15 @@ async def _do_download(query, context: ContextTypes.DEFAULT_TYPE, idx: int, to_p
     download_task = asyncio.create_task(_try_download(idx))
     context.user_data["active_dl_task"] = download_task
     try:
-        outcome = await download_task
+        # Use short timeout to allow other handlers (e.g., cancel) to execute
+        # while still monitoring the download task
+        while not download_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(download_task), timeout=0.5)
+            except asyncio.TimeoutError:
+                # Timeout is expected — just allows other callbacks to be processed
+                continue
+        outcome = download_task.result()
     except asyncio.CancelledError:
         return  # message already updated by handle_cancel_download
     finally:
@@ -461,16 +935,31 @@ async def _do_download(query, context: ContextTypes.DEFAULT_TYPE, idx: int, to_p
 
     send_path = file_path
     send_ext = ext
-    pdf_path = None
-    if to_pdf and ext == "epub":
+    converted_path = None
+
+    # Convert to desired format if needed
+    if ext == "epub" and desired_fmt != "epub":
         try:
-            await query.edit_message_text(f"🔄 Conversion en PDF de « {title[:50]} »...")
-            pdf_path = await converter.epub_to_pdf(file_path)
-            send_path = pdf_path
-            send_ext = "pdf"
+            if desired_fmt == "pdf":
+                await query.edit_message_text(f"🔄 Conversion en PDF de « {title[:50]} »...")
+                converted_path = await converter.epub_to_pdf(file_path)
+                send_ext = "pdf"
+            elif desired_fmt == "mobi":
+                await query.edit_message_text(f"🔄 Conversion en MOBI de « {title[:50]} »...")
+                converted_path = await converter.epub_to_mobi(file_path)
+                send_ext = "mobi"
+            elif desired_fmt == "azw3":
+                await query.edit_message_text(f"🔄 Conversion en AZW3 de « {title[:50]} »...")
+                converted_path = await converter.epub_to_azw3(file_path)
+                send_ext = "azw3"
+
+            if converted_path:
+                send_path = converted_path
         except Exception as e:
-            logger.warning(f"PDF conversion failed: {e}")
-            await query.edit_message_text("⚠️ Conversion PDF échouée, envoi en EPUB à la place.")
+            logger.warning(f"Conversion to {desired_fmt} failed: {e}")
+            await query.edit_message_text(f"⚠️ Conversion {desired_fmt.upper()} échouée, envoi en EPUB à la place.")
+            send_path = file_path
+            send_ext = ext
 
     try:
         # VirusTotal scan (skipped if not configured)
@@ -517,19 +1006,49 @@ async def _do_download(query, context: ContextTypes.DEFAULT_TYPE, idx: int, to_p
 
         safe_title = re.sub(r'[^\w\s\-]', '', title).strip()[:60] or "livre"
         filename = f"{safe_title}.{send_ext}"
-        await query.edit_message_text(f"📤 Envoi de « {title} »...")
 
-        with open(send_path, "rb") as f:
-            await query.message.reply_document(
-                document=f,
-                filename=filename,
-                caption=f"📖 {title}{vt_caption}",
-            )
+        if destination == "telegram":
+            await query.edit_message_text(f"📤 Envoi de « {title} »...")
+            with open(send_path, "rb") as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"📖 {title}{vt_caption}",
+                )
+            await query.edit_message_text(f"✅ Envoyé ! Bonne lecture 📖")
 
-        await query.edit_message_text(f"✅ Envoyé ! Bonne lecture 📖")
+        elif destination == "email":
+            user_id = query.from_user.id
+            user_prefs = await prefs.get(user_id)
+            email_addr = user_prefs.get("email")
+            if not email_addr:
+                await query.edit_message_text("❌ Adresse email non configurée. Utilise /settings")
+                return
+            try:
+                await query.edit_message_text(f"📧 Envoi par email à {email_addr}...")
+                await mailer.send_file(send_path, filename, email_addr, kindle=False)
+                await query.edit_message_text(f"✅ Email envoyé à {email_addr} 📧")
+            except Exception as e:
+                logger.warning(f"Email send failed: {e}")
+                await query.edit_message_text("❌ Envoi email échoué. Vérifie la configuration SMTP dans /settings.")
+
+        elif destination == "kindle":
+            user_id = query.from_user.id
+            user_prefs = await prefs.get(user_id)
+            kindle_email = user_prefs.get("kindle_email")
+            if not kindle_email:
+                await query.edit_message_text("❌ Adresse Kindle non configurée. Utilise /settings")
+                return
+            try:
+                await query.edit_message_text(f"📖 Envoi vers Kindle ({kindle_email})...")
+                await mailer.send_file(send_path, filename, kindle_email, kindle=True)
+                await query.edit_message_text(f"✅ Envoyé vers votre Kindle ! 📖")
+            except Exception as e:
+                logger.warning(f"Kindle send failed: {e}")
+                await query.edit_message_text("❌ Envoi Kindle échoué. Vérifie l'adresse Kindle et la config SMTP dans /settings.")
     finally:
         # Clean up temp files (not watcher paths — owned by the download client)
-        for path in (file_path, pdf_path):
+        for path in (file_path, converted_path):
             if path and path.startswith(tempfile.gettempdir()):
                 try:
                     os.remove(path)
@@ -596,14 +1115,28 @@ def main() -> None:
     app = builder.build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("settings", cmd_settings))
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search)
     )
     app.add_handler(CallbackQueryHandler(handle_download, pattern=r"^dl_\d+$"))
-    app.add_handler(CallbackQueryHandler(handle_download_fmt, pattern=r"^dlfmt_(epub|pdf)_\d+$"))
+    app.add_handler(CallbackQueryHandler(handle_download_fmt, pattern=r"^dlfmt_(epub|pdf|mobi|azw3)_\d+$"))
+    app.add_handler(CallbackQueryHandler(handle_dest_telegram, pattern=r"^dest_telegram_\d+$"))
+    app.add_handler(CallbackQueryHandler(handle_dest_email, pattern=r"^dest_email_\d+$"))
+    app.add_handler(CallbackQueryHandler(handle_dest_kindle, pattern=r"^dest_kindle_\d+$"))
     app.add_handler(CallbackQueryHandler(handle_confirm_non_epub, pattern=r"^confirm_non_epub$"))
     app.add_handler(CallbackQueryHandler(handle_cancel_search, pattern=r"^cancel_search$"))
     app.add_handler(CallbackQueryHandler(handle_cancel_download, pattern=r"^cancel_dl$"))
+    app.add_handler(CallbackQueryHandler(handle_settings, pattern=r"^open_settings$"))
+    app.add_handler(CallbackQueryHandler(handle_setfmt_menu, pattern=r"^setfmt_menu$"))
+    app.add_handler(CallbackQueryHandler(handle_setfmt, pattern=r"^setfmt_\w+$"))
+    app.add_handler(CallbackQueryHandler(handle_setemail_prompt, pattern=r"^setemail_prompt$"))
+    app.add_handler(CallbackQueryHandler(handle_setkindl_prompt, pattern=r"^setkindl_prompt$"))
+    app.add_handler(CallbackQueryHandler(handle_prefs_delete_confirm, pattern=r"^prefs_delete_confirm$"))
+    app.add_handler(CallbackQueryHandler(handle_prefs_delete_execute, pattern=r"^prefs_delete_execute$"))
+    app.add_handler(CallbackQueryHandler(handle_onb_fmt, pattern=r"^onb_fmt_\w+$"))
+    app.add_handler(CallbackQueryHandler(handle_onb_skip_email, pattern=r"^onb_skip_email$"))
+    app.add_handler(CallbackQueryHandler(handle_onb_skip_kindle, pattern=r"^onb_skip_kindle$"))
 
     if GITHUB_REPO:
         app.job_queue.run_repeating(check_for_updates, interval=86400, first=30)
@@ -618,6 +1151,8 @@ def main() -> None:
     logger.info(f"  Prowlarr       : {'✓ ' + os.environ.get('PROWLARR_URL', '') if os.environ.get('PROWLARR_URL') else '✗ désactivé'}")
     logger.info(f"  Formats        : {', '.join(ALLOWED_FORMATS)}")
     logger.info(f"  VirusTotal     : {'✓ activé' if virustotal.VT_API_KEY else '✗ désactivé'}")
+    logger.info(f"  Calibre        : {'✓ ebook-convert trouvé' if converter.ebook_convert_available() else '✗ absent — fallback PyMuPDF pour MOBI/AZW3'}")
+    logger.info(f"  Email / Kindle : {'✓ activé' if mailer.is_configured() else '✗ désactivé'}")
     logger.info(f"  Mises à jour   : {'✓ ' + GITHUB_REPO if GITHUB_REPO else '✗ désactivées'}")
     logger.info(f"  Limite fichier : {MAX_FILE_SIZE // 1024 // 1024} MB{'  [local Bot API]' if LOCAL_API_SERVER else ''}")
     logger.info(f"  Utilisateurs   : {len(ALLOWED_USER_IDS)} autorisé(s)")

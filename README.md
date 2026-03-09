@@ -107,9 +107,37 @@ Both sources are optional and independent — you can enable one, the other, or 
 
 | Variable | Description |
 |---|---|
-| `ALLOWED_FORMATS` | Formats to offer when an epub is found. Accepted values: `epub`, `pdf`, or `epub,pdf` (default). If only one value is set, no format question is asked. PDF conversion uses PyMuPDF — no system dependencies required. |
+| `ALLOWED_FORMATS` | Comma-separated list of formats to offer. Accepted values: `epub`, `pdf`, `mobi`, `azw3`. Default: `epub,pdf`. If only one value is set, no format question is asked. Kindle models from 2022 onward support EPUB natively — MOBI/AZW3 are mainly needed for older Kindles. |
+| `USER_PREFS_FILE` | Path to the JSON file that stores per-user preferences (format, email, Kindle address). Default: `user_prefs.json` (next to `bot.py`). Set to `data/user_prefs.json` to keep it in the `data/` folder. |
 
-Format selection only applies to epub results (the only format the bot can convert from). PDF, mobi, and other formats are always sent as-is.
+Format selection only applies to epub results. The bot always downloads EPUB and converts on the fly:
+- **→ PDF**: PyMuPDF (no extra dependency required)
+- **→ MOBI / AZW3**: Calibre's `ebook-convert` if installed, otherwise PyMuPDF as fallback
+
+**Optional — Calibre (for accurate MOBI/AZW3 conversion):**
+
+Install [Calibre](https://calibre-ebook.com) on the machine running the bot. No configuration needed — the bot auto-detects `ebook-convert` in your PATH. Without Calibre, MOBI/AZW3 conversion falls back to PyMuPDF (output may vary).
+
+The startup log shows whether Calibre was found:
+```
+  Calibre        : ✓ ebook-convert trouvé
+```
+
+**Optional — Email & Send to Kindle:**
+
+The bot can send books directly to an email address or to a Kindle. Each user stores their own email/Kindle address via `/settings`.
+
+| Variable | Description |
+|---|---|
+| `SMTP_HOST` | SMTP server hostname. Default: `smtp.gmail.com` |
+| `SMTP_PORT` | SMTP port. Default: `587` (STARTTLS) |
+| `SMTP_USER` | SMTP login (e.g. your Gmail address) |
+| `SMTP_PASSWORD` | SMTP password. For Gmail, generate an **App Password** at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (do not use your regular password) |
+| `SMTP_FROM` | Sender address. Defaults to `SMTP_USER` if left empty |
+
+> **Send to Kindle:** add the `SMTP_FROM` address to your Amazon account's "Approved Personal Document E-mail List" (Amazon account → Manage Your Content and Devices → Preferences → Personal Document Settings).
+
+SMTP is global (set once in `.env`). Each user sets their own destination address with `/settings`.
 
 **Optional — VirusTotal** (scans downloaded files before sending):
 
@@ -155,11 +183,13 @@ python bot.py
 The bot will start and print its active configuration, then log `Bot started.` when ready:
 
 ```
---- maman-books v1.1.0 ---
+--- maman-books v1.2.0 ---
   Anna's Archive : ✓ https://…
   Prowlarr       : ✗ désactivé
-  Formats        : epub, pdf
+  Formats        : epub, pdf, mobi, azw3
   VirusTotal     : ✓ activé
+  Calibre        : ✓ ebook-convert trouvé
+  Email / Kindle : ✓ activé
   Mises à jour   : ✓ Zoeille/maman-books
   Limite fichier : 50 MB
   Utilisateurs   : 1 autorisé(s)
@@ -222,18 +252,21 @@ docker compose up -d --build
 docker compose logs -f bot
 ```
 
-> The `docker-compose.yml` uses an external Docker network called `media-stack`. If you don't have that network (e.g. you're not running an *arr stack), remove the `networks` section and the `media-stack` reference from `docker-compose.yml` before starting.
+> **User preferences** are stored in `./data/user_prefs.json` on the host (bind-mounted into the container). The `data/` folder is created automatically on first run. Make sure to set `USER_PREFS_FILE=data/user_prefs.json` in your `.env`.
 
 ---
 
 ## Usage
 
 1. Open Telegram and find your bot by its username
-2. Send `/start`
+2. Send `/start` — on first launch, a setup wizard guides you through your preferences (default format, email, Kindle address)
 3. Type any book title and send it
 4. The bot searches and shows a list of results — tap one to download
-5. If the result is an epub and `ALLOWED_FORMATS` includes both formats, you'll be asked: **EPUB or PDF?**
-6. The file is sent directly in the chat — if VirusTotal is enabled, it's scanned first
+5. If `ALLOWED_FORMATS` has multiple values, you'll be asked which format you want
+6. If you've configured an email or Kindle address, you'll be asked where to send it (Telegram / Email / Kindle)
+7. The file is sent — if VirusTotal is enabled, it's scanned first
+
+Use `/settings` at any time to update your preferences (format, email, Kindle address).
 
 ---
 
