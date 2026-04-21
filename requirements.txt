@@ -1,5 +1,5 @@
 python-telegram-bot[job-queue]==21.6
 httpx==0.27.2
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 beautifulsoup4==4.12.3
 pymupdf==1.25.3
